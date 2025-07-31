@@ -1,1 +1,1 @@
-# SusPal-
+# SusPal
