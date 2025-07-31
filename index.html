@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SusPal - Sustainability Tracker</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: 'Poppins', sans-serif;
+      padding: 20px;
+      background-color: #f4f4f4;
+    }
+
+    h1 {
+      color: #2c3e50;
+    }
+
+    .upload-section {
+      margin-bottom: 20px;
+    }
+
+    .chart-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      justify-content: space-between;
+    }
+
+    .chart-card {
+      background: #fff;
+      padding: 15px;
+      border-radius: 10px;
+      flex: 1 1 calc(33.333% - 20px);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+
+    .full-width-card {
+      background: #fff;
+      padding: 15px;
+      border-radius: 10px;
+      margin-top: 20px;
+      width: 100%;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+
+    label, select {
+      display: block;
+      margin-bottom: 10px;
+    }
+
+    canvas {
+      width: 100% !important;
+      height: auto !important;
+    }
+
+    @media (max-width: 768px) {
+      .chart-card {
+        flex: 1 1 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <h1>SusPal - Sustainability Dashboard</h1>
+  <div class="upload-section">
+    <label for="upload">Upload Sustainability Data (.xlsx): </label>
+    <input type="file" id="upload" accept=".xlsx"/>
+  </div>
+
+  <!-- Top Row: 3 Cards -->
+  <div class="chart-grid">
+    <div class="chart-card">
+      <label for="fuelChartType">Select Chart for Fuel Consumed:</label>
+      <select id="fuelChartType">
+        <option value="line" selected>Line</option>
+        <option value="bar">Bar</option>
+      </select>
+      <canvas id="fuelChart"></canvas>
+    </div>
+
+    <div class="chart-card">
+      <label for="electricityChartType">Select Chart for Electricity Used:</label>
+      <select id="electricityChartType">
+        <option value="line" selected>Line</option>
+        <option value="bar">Bar</option>
+      </select>
+      <canvas id="electricityChart"></canvas>
+    </div>
+
+    <div class="chart-card">
+      <label for="wasteChartType">Select Chart for Waste Generated:</label>
+      <select id="wasteChartType">
+        <option value="line" selected>Line</option>
+        <option value="bar">Bar</option>
+      </select>
+      <canvas id="wasteChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Bottom Row: Full-Width Money Overview -->
+  <div class="full-width-card">
+    <h3>Money Spent Overview</h3>
+    <label for="moneyChartType">Select Chart Type:</label>
+    <select id="moneyChartType">
+      <option value="line" selected>Line</option>
+      <option value="pie">Pie</option>
+    </select>
+    <canvas id="moneySpentChart"></canvas>
+  </div>
+
+  <script>
+    let fuelChartInstance, electricityChartInstance, wasteChartInstance, moneySpentChartInstance;
+
+    document.getElementById('upload').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+
+      reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(worksheet);
+
+        const monthlyData = {};
+
+        json.forEach(row => {
+          const date = new Date(row['Date']);
+          const key = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+
+          if (!monthlyData[key]) {
+            monthlyData[key] = {
+              fuel: 0,
+              electricity: 0,
+              waste: 0,
+              moneyFuel: 0,
+              moneyElectricity: 0,
+              moneyWaste: 0
+            };
+          }
+
+          monthlyData[key].fuel += Number(row['Fuel Consumption (L)']) || 0;
+          monthlyData[key].electricity += Number(row['Electricity Consumption (kWh)']) || 0;
+          monthlyData[key].waste += Number(row['Waste Generated (kg)']) || 0;
+          monthlyData[key].moneyFuel += Number(row['Money Spent on Fuel']) || 0;
+          monthlyData[key].moneyElectricity += Number(row['Money Spent on Electricity']) || 0;
+          monthlyData[key].moneyWaste += Number(row['Money Spent on Waste']) || 0;
+        });
+
+        const dates = Object.keys(monthlyData).sort((a, b) => new Date(a) - new Date(b));
+        const fuel = dates.map(month => monthlyData[month].fuel);
+        const electricity = dates.map(month => monthlyData[month].electricity);
+        const waste = dates.map(month => monthlyData[month].waste);
+        const moneyFuel = dates.map(month => monthlyData[month].moneyFuel);
+        const moneyElectricity = dates.map(month => monthlyData[month].moneyElectricity);
+        const moneyWaste = dates.map(month => monthlyData[month].moneyWaste);
+
+        function renderFuelChart(type = 'line') {
+          if (fuelChartInstance) fuelChartInstance.destroy();
+          const ctx = document.getElementById('fuelChart').getContext('2d');
+          fuelChartInstance = new Chart(ctx, {
+            type,
+            data: {
+              labels: dates,
+              datasets: [{
+                label: 'Fuel Consumption (L)',
+                data: fuel,
+                backgroundColor: 'rgba(52, 152, 219, 0.2)',
+                borderColor: 'rgba(41, 128, 185, 1)',
+                borderWidth: 2,
+                fill: type === 'line'
+              }]
+            }
+          });
+        }
+
+        function renderElectricityChart(type = 'line') {
+          if (electricityChartInstance) electricityChartInstance.destroy();
+          const ctx = document.getElementById('electricityChart').getContext('2d');
+          electricityChartInstance = new Chart(ctx, {
+            type,
+            data: {
+              labels: dates,
+              datasets: [{
+                label: 'Electricity Consumption (kWh)',
+                data: electricity,
+                backgroundColor: 'rgba(46, 204, 113, 0.7)',
+                borderColor: 'rgba(39, 174, 96, 1)',
+                borderWidth: 1,
+                fill: type === 'line'
+              }]
+            }
+          });
+        }
+
+        function renderWasteChart(type = 'line') {
+          if (wasteChartInstance) wasteChartInstance.destroy();
+          const ctx = document.getElementById('wasteChart').getContext('2d');
+          wasteChartInstance = new Chart(ctx, {
+            type,
+            data: {
+              labels: dates,
+              datasets: [{
+                label: 'Waste Generated (kg)',
+                data: waste,
+                backgroundColor: 'rgba(231, 76, 60, 0.2)',
+                borderColor: 'rgba(192, 57, 43, 1)',
+                borderWidth: 2,
+                fill: type === 'line'
+              }]
+            }
+          });
+        }
+
+        function renderMoneySpentChart(type = 'line') {
+          if (moneySpentChartInstance) moneySpentChartInstance.destroy();
+          const ctx = document.getElementById('moneySpentChart').getContext('2d');
+
+          if (type === 'pie') {
+            const totalFuel = moneyFuel.reduce((a, b) => a + b, 0);
+            const totalElectricity = moneyElectricity.reduce((a, b) => a + b, 0);
+            const totalWaste = moneyWaste.reduce((a, b) => a + b, 0);
+            
+            moneySpentChartInstance = new Chart(ctx, {
+              type: 'pie',
+              data: {
+                labels: ['Fuel', 'Electricity', 'Waste'],
+                datasets: [{
+                  label: 'Total Money Spent',
+                  data: [totalFuel, totalElectricity, totalWaste],
+                  backgroundColor: [
+                    'rgba(52, 152, 219, 0.6)',
+                    'rgba(46, 204, 113, 0.6)',
+                    'rgba(231, 76, 60, 0.6)'
+                  ],
+                  borderColor: [
+                    'rgba(41, 128, 185, 1)',
+                    'rgba(39, 174, 96, 1)',
+                    'rgba(192, 57, 43, 1)'
+                  ],
+                  borderWidth: 1
+                }]
+              }
+            });
+          } else {
+            moneySpentChartInstance = new Chart(ctx, {
+              type: 'line',
+              data: {
+                labels: dates,
+                datasets: [
+                  {
+                    label: 'Money Spent on Fuel',
+                    data: moneyFuel,
+                    borderColor: 'rgba(52, 152, 219, 1)',
+                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                    borderWidth: 2,
+                    fill: false
+                  },
+                  {
+                    label: 'Money Spent on Electricity',
+                    data: moneyElectricity,
+                    borderColor: 'rgba(46, 204, 113, 1)',
+                    backgroundColor: 'rgba(46, 204, 113, 0.1)',
+                    borderWidth: 2,
+                    fill: false
+                  },
+                  {
+                    label: 'Money Spent on Waste',
+                    data: moneyWaste,
+                    borderColor: 'rgba(231, 76, 60, 1)',
+                    backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                    borderWidth: 2,
+                    fill: false
+                  }
+                ]
+              }
+            });
+          }
+        }
+
+        renderFuelChart(document.getElementById('fuelChartType').value);
+        renderElectricityChart(document.getElementById('electricityChartType').value);
+        renderWasteChart(document.getElementById('wasteChartType').value);
+        renderMoneySpentChart(document.getElementById('moneyChartType').value);
+
+        document.getElementById('fuelChartType').addEventListener('change', e => {
+          renderFuelChart(e.target.value);
+        });
+
+        document.getElementById('electricityChartType').addEventListener('change', e => {
+          renderElectricityChart(e.target.value);
+        });
+
+        document.getElementById('wasteChartType').addEventListener('change', e => {
+          renderWasteChart(e.target.value);
+        });
+
+        document.getElementById('moneyChartType').addEventListener('change', e => {
+          renderMoneySpentChart(e.target.value);
+        });
+      };
+
+      reader.readAsArrayBuffer(file);
+    });
+  </script>
+</body>
+</html>
